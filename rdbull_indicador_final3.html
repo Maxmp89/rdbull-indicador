@@ -1,93 +1,100 @@
-from pathlib import Path
-
-# Novo App ID fornecido
-app_id = "87915"
-
-# Gerar HTML atualizado com o novo App ID para o indicador RDBULL (EMA + RSI)
-html_code = f"""
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8" />
     <title>📈 Indicador RDBULL CALL (EMA + RSI)</title>
     <style>
-        body {{ background: #111; color: white; font-family: Arial, sans-serif; padding: 20px; }}
-        h1 {{ color: gold; }}
-        ul {{ margin-top: 0; }}
-        .log {{ background: #000; border: 1px solid #333; padding: 10px; height: 400px; overflow-y: auto; }}
-        .erro {{ color: lime; }}
+        body { background-color: #111; color: white; font-family: Arial, sans-serif; }
+        h1 { color: gold; }
+        .status {
+            border: 1px solid gray; padding: 15px; margin-top: 20px;
+            background-color: #000; color: lime; height: 200px;
+            overflow-y: auto; white-space: pre-line;
+        }
+        li { margin-bottom: 5px; }
     </style>
 </head>
 <body>
-    <h1>✅ Indicador RDBULL CALL (EMA + RSI)</h1>
+    <h1>✅ Indicador <strong>RDBULL CALL (EMA + RSI)</strong></h1>
     <p>Exibe sinais de compra com base em:</p>
     <ul>
         <li>📌 Preço acima da EMA 50</li>
         <li>📌 RSI(14) acima de 50</li>
         <li>📌 Candle anterior vermelho, atual verde</li>
     </ul>
+
     <p>Conectando ao WebSocket da Deriv e gerando sinais abaixo...</p>
-    <div class="log" id="log"></div>
+    <div class="status" id="log"></div>
 
     <script>
-        const logDiv = document.getElementById("log");
+        const log = (msg, error=false) => {
+            const el = document.getElementById("log");
+            el.innerHTML += (error ? "❌ " : "✔ ") + msg + "\\n";
+            el.scrollTop = el.scrollHeight;
+        };
 
-        function log(msg, erro = false) {{
-            const p = document.createElement("p");
-            p.textContent = msg;
-            if (erro) p.classList.add("erro");
-            logDiv.appendChild(p);
-            logDiv.scrollTop = logDiv.scrollHeight;
-        }}
+        const app_id = "87915";
+        const ws = new WebSocket(`wss://ws.deriv.com/websockets/v3?app_id=${app_id}`);
 
-        const ws = new WebSocket("wss://ws.deriv.com/websockets/v3?app_id={app_id}");
+        ws.onopen = () => {
+            log("Conectado com sucesso ao WebSocket da Deriv.");
+            ws.send(JSON.stringify({
+                ticks_history: "RDBULL",
+                adjust_start_time: 1,
+                count: 100,
+                style: "candles",
+                granularity: 60,
+                subscribe: 1
+            }));
+        };
 
-        ws.onopen = () => log("✅ Conectado com sucesso à Deriv...");
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+            if (data.msg_type === "history") {
+                const candles = data.history.candles;
+                if (candles.length < 50) return;
 
-        ws.onerror = (err) => log("❌ Erro de conexão: " + err.message, true);
+                const closes = candles.map(c => parseFloat(c.close));
+                const rsi = (arr, period = 14) => {
+                    let gains = 0, losses = 0;
+                    for (let i = 1; i <= period; i++) {
+                        let change = arr[i] - arr[i - 1];
+                        if (change > 0) gains += change;
+                        else losses -= change;
+                    }
+                    const avgGain = gains / period;
+                    const avgLoss = losses / period || 1;
+                    const rs = avgGain / avgLoss;
+                    return 100 - (100 / (1 + rs));
+                };
 
-        ws.onmessage = (msg) => {{
-            const data = JSON.parse(msg.data);
-            if (data.msg_type === "ohlc") {{
-                const o = data.ohlc;
-                const open = parseFloat(o.open);
-                const close = parseFloat(o.close);
-                const high = parseFloat(o.high);
-                const low = parseFloat(o.low);
+                const ema = (arr, period = 50) => {
+                    const k = 2 / (period + 1);
+                    return arr.reduce((acc, val, i) => {
+                        if (i === 0) return val;
+                        return val * k + acc * (1 - k);
+                    });
+                };
 
-                // Simulação simples de lógica (substituir por EMA/RSI reais se necessário)
-                const candleAnteriorVerme = open > close;
-                const candleAtualVerde = close > open;
+                const rsi14 = rsi(closes.slice(-15));
+                const ema50 = ema(closes);
+                const prev = candles.at(-2), curr = candles.at(-1);
 
-                if (candleAnteriorVerme && candleAtualVerde && close > open + 1) {{
-                    log("📈 SINAL DE COMPRA (CALL) detectado!");
-                }}
-            }}
-        }};
+                if (
+                    parseFloat(curr.close) > ema50 &&
+                    rsi14 > 50 &&
+                    parseFloat(prev.close) < parseFloat(prev.open) &&
+                    parseFloat(curr.close) > parseFloat(curr.open)
+                ) {
+                    log("🔼 Sinal de COMPRA confirmado! 📈");
+                } else {
+                    log("Aguardando condições...");
+                }
+            }
+        };
 
-        ws.onclose = () => log("⚠️ Conexão fechada.");
-
-        // Solicitar ticks da RDBULL
-        ws.onopen = () => {{
-            log("⏳ Solicitando dados da RDBULL...");
-            ws.send(JSON.stringify({{
-                "ticks_history": "RDBULL",
-                "adjust_start_time": 1,
-                "count": 100,
-                "end": "latest",
-                "start": 1,
-                "style": "candles",
-                "granularity": 86400,  // 24h
-                "subscribe": 1
-            }}));
-        }};
+        ws.onerror = (e) => log("Erro de conexão: " + e.message, true);
+        ws.onclose = () => log("Conexão fechada.", true);
     </script>
 </body>
 </html>
-"""
-
-# Salvar arquivo
-output_path = Path("/mnt/data/rdbull_indicador_final.html")
-output_path.write_text(html_code)
-
-output_path.name
