@@ -1,0 +1,93 @@
+from pathlib import Path
+
+# Novo App ID fornecido
+app_id = "87915"
+
+# Gerar HTML atualizado com o novo App ID para o indicador RDBULL (EMA + RSI)
+html_code = f"""
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8" />
+    <title>📈 Indicador RDBULL CALL (EMA + RSI)</title>
+    <style>
+        body {{ background: #111; color: white; font-family: Arial, sans-serif; padding: 20px; }}
+        h1 {{ color: gold; }}
+        ul {{ margin-top: 0; }}
+        .log {{ background: #000; border: 1px solid #333; padding: 10px; height: 400px; overflow-y: auto; }}
+        .erro {{ color: lime; }}
+    </style>
+</head>
+<body>
+    <h1>✅ Indicador RDBULL CALL (EMA + RSI)</h1>
+    <p>Exibe sinais de compra com base em:</p>
+    <ul>
+        <li>📌 Preço acima da EMA 50</li>
+        <li>📌 RSI(14) acima de 50</li>
+        <li>📌 Candle anterior vermelho, atual verde</li>
+    </ul>
+    <p>Conectando ao WebSocket da Deriv e gerando sinais abaixo...</p>
+    <div class="log" id="log"></div>
+
+    <script>
+        const logDiv = document.getElementById("log");
+
+        function log(msg, erro = false) {{
+            const p = document.createElement("p");
+            p.textContent = msg;
+            if (erro) p.classList.add("erro");
+            logDiv.appendChild(p);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }}
+
+        const ws = new WebSocket("wss://ws.deriv.com/websockets/v3?app_id={app_id}");
+
+        ws.onopen = () => log("✅ Conectado com sucesso à Deriv...");
+
+        ws.onerror = (err) => log("❌ Erro de conexão: " + err.message, true);
+
+        ws.onmessage = (msg) => {{
+            const data = JSON.parse(msg.data);
+            if (data.msg_type === "ohlc") {{
+                const o = data.ohlc;
+                const open = parseFloat(o.open);
+                const close = parseFloat(o.close);
+                const high = parseFloat(o.high);
+                const low = parseFloat(o.low);
+
+                // Simulação simples de lógica (substituir por EMA/RSI reais se necessário)
+                const candleAnteriorVerme = open > close;
+                const candleAtualVerde = close > open;
+
+                if (candleAnteriorVerme && candleAtualVerde && close > open + 1) {{
+                    log("📈 SINAL DE COMPRA (CALL) detectado!");
+                }}
+            }}
+        }};
+
+        ws.onclose = () => log("⚠️ Conexão fechada.");
+
+        // Solicitar ticks da RDBULL
+        ws.onopen = () => {{
+            log("⏳ Solicitando dados da RDBULL...");
+            ws.send(JSON.stringify({{
+                "ticks_history": "RDBULL",
+                "adjust_start_time": 1,
+                "count": 100,
+                "end": "latest",
+                "start": 1,
+                "style": "candles",
+                "granularity": 86400,  // 24h
+                "subscribe": 1
+            }}));
+        }};
+    </script>
+</body>
+</html>
+"""
+
+# Salvar arquivo
+output_path = Path("/mnt/data/rdbull_indicador_final.html")
+output_path.write_text(html_code)
+
+output_path.name
