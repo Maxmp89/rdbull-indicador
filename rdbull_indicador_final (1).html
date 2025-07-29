@@ -1,0 +1,128 @@
+
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>📈 Indicador RDBULL CALL (EMA + RSI)</title>
+  <style>
+    body {
+      background-color: #111;
+      color: #fff;
+      font-family: Arial, sans-serif;
+    }
+    h2 {
+      color: #f5f542;
+    }
+    ul {
+      line-height: 1.8em;
+    }
+    #log {
+      background: #000;
+      color: #0f0;
+      padding: 10px;
+      height: 400px;
+      overflow-y: scroll;
+      border: 1px solid #333;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+  <h2>📈 Indicador RDBULL CALL (EMA + RSI)</h2>
+  <p>Exibe sinais de compra com base em:</p>
+  <ul>
+    <li>📌 Preço acima da EMA 50</li>
+    <li>📌 RSI(14) acima de 50</li>
+    <li>📌 Candle anterior vermelho, atual verde</li>
+  </ul>
+  <p>Conectando ao WebSocket da Deriv e gerando sinais abaixo...</p>
+  <div id="log"></div>
+
+  <script>
+    const log = (msg) => {
+      const el = document.getElementById("log");
+      el.innerText += msg + "\n";
+      el.scrollTop = el.scrollHeight;
+    };
+
+    const app_id = 87893;
+    const ws = new WebSocket("wss://ws.deriv.com/websockets/v3?app_id=" + app_id);
+
+    ws.onopen = () => {
+      log("🟢 Conectado com sucesso! Buscando dados do RDBULL...");
+      ws.send(JSON.stringify({ active_symbols: "brief", product_type: "basic" }));
+    };
+
+    let candles = [];
+    ws.onmessage = function (msg) {
+      const data = JSON.parse(msg.data);
+
+      if (data.msg_type === "active_symbols") {
+        const rdbull = data.active_symbols.find(s => s.symbol === "RDBULL");
+        if (!rdbull) return log("❌ Símbolo RDBULL não encontrado.");
+        const symbol = rdbull.symbol;
+        ws.send(JSON.stringify({
+          ticks_history: symbol,
+          style: "candles",
+          granularity: 60,
+          count: 100,
+          subscribe: 1
+        }));
+        log("🔄 Aguardando candles...");
+      }
+
+      if (data.msg_type === "history") {
+        candles = data.candles;
+        analisarCandle();
+      }
+
+      if (data.msg_type === "candles") {
+        candles.push(data.candles[0]);
+        if (candles.length > 100) candles.shift();
+        analisarCandle();
+      }
+    };
+
+    function calcularEMA(periodo, dados) {
+      const k = 2 / (periodo + 1);
+      let ema = dados[0].close;
+      for (let i = 1; i < dados.length; i++) {
+        ema = dados[i].close * k + ema * (1 - k);
+      }
+      return ema;
+    }
+
+    function calcularRSI(periodo, dados) {
+      let gains = 0, losses = 0;
+      for (let i = dados.length - periodo; i < dados.length - 1; i++) {
+        const dif = dados[i + 1].close - dados[i].close;
+        if (dif > 0) gains += dif;
+        else losses -= dif;
+      }
+      const rs = gains / (losses || 1);
+      return 100 - (100 / (1 + rs));
+    }
+
+    function analisarCandle() {
+      if (candles.length < 52) return;
+      const atual = candles[candles.length - 1];
+      const anterior = candles[candles.length - 2];
+      const ema50 = calcularEMA(50, candles.slice(-52));
+      const rsi14 = calcularRSI(14, candles.slice(-15));
+
+      if (
+        atual.close > ema50 &&
+        rsi14 > 50 &&
+        anterior.close < anterior.open &&
+        atual.close > atual.open
+      ) {
+        log("✅ SINAL DE COMPRA (CALL) - Preço: " + atual.close.toFixed(2));
+      }
+    }
+
+    ws.onerror = function(err) {
+      log("❌ Erro de conexão: " + err.message);
+    };
+  </script>
+</body>
+</html>
