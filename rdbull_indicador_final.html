@@ -1,132 +1,137 @@
+from pathlib import Path
 
+# Conteúdo do HTML atualizado com App ID 87893
+html_content = """
 <!DOCTYPE html>
-<html>
+<html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <title>Indicador RDBULL (EMA + RSI)</title>
+  <title>📈 Indicador RDBULL CALL (EMA + RSI)</title>
   <style>
-    body { background: #111; color: #eee; font-family: Arial; padding: 10px; }
-    canvas { border: 1px solid #444; margin-top: 10px; }
+    body {
+      background-color: #111;
+      color: #fff;
+      font-family: Arial, sans-serif;
+    }
+    h2 {
+      color: #f5f542;
+    }
+    ul {
+      line-height: 1.8em;
+    }
+    #log {
+      background: #000;
+      color: #0f0;
+      padding: 10px;
+      height: 400px;
+      overflow-y: scroll;
+      border: 1px solid #333;
+      white-space: pre-wrap;
+    }
   </style>
 </head>
 <body>
   <h2>📈 Indicador RDBULL CALL (EMA + RSI)</h2>
   <p>Exibe sinais de compra com base em:</p>
   <ul>
-    <li>Preço acima da EMA 50</li>
-    <li>RSI(14) acima de 50</li>
-    <li>Candle anterior vermelho, atual verde</li>
+    <li>📌 Preço acima da EMA 50</li>
+    <li>📌 RSI(14) acima de 50</li>
+    <li>📌 Candle anterior vermelho, atual verde</li>
   </ul>
   <p>Conectando ao WebSocket da Deriv e gerando sinais abaixo...</p>
-  <canvas id="chart" width="1000" height="400"></canvas>
+  <div id="log"></div>
 
   <script>
-    const ws = new WebSocket("wss://ws.deriv.com/websockets/v3?app_id=1089");
-    const candles = [];
-    const maxCandles = 100;
-    const chart = document.getElementById("chart").getContext("2d");
-
-    function drawChart(data, signals) {
-      chart.clearRect(0, 0, 1000, 400);
-      chart.strokeStyle = "#00ff00";
-      chart.beginPath();
-      for (let i = 1; i < data.length; i++) {
-        let x1 = (i - 1) * 10;
-        let y1 = 400 - (data[i - 1].close - 800);
-        let x2 = i * 10;
-        let y2 = 400 - (data[i].close - 800);
-        chart.moveTo(x1, y1);
-        chart.lineTo(x2, y2);
-      }
-      chart.stroke();
-
-      chart.fillStyle = "cyan";
-      signals.forEach(sig => {
-        let x = sig.index * 10;
-        let y = 400 - (sig.price - 800);
-        chart.beginPath();
-        chart.arc(x, y, 5, 0, 2 * Math.PI);
-        chart.fill();
-      });
-    }
-
-    function calcEMA(data, period) {
-      const k = 2 / (period + 1);
-      let ema = data[0].close;
-      return data.map((c, i) => {
-        if (i === 0) return ema;
-        ema = c.close * k + ema * (1 - k);
-        return ema;
-      });
-    }
-
-    function calcRSI(data, period) {
-      let gains = 0, losses = 0;
-      for (let i = 1; i <= period; i++) {
-        const change = data[i].close - data[i - 1].close;
-        if (change >= 0) gains += change;
-        else losses -= change;
-      }
-      let rs = gains / (losses || 1);
-      let rsi = 100 - (100 / (1 + rs));
-      const results = [rsi];
-
-      for (let i = period + 1; i < data.length; i++) {
-        const change = data[i].close - data[i - 1].close;
-        gains = change > 0 ? change : 0;
-        losses = change < 0 ? -change : 0;
-        rs = (rs * (period - 1) + gains) / period;
-        let lossAvg = (losses + (period - 1) * (100 - rsi)) / period;
-        rsi = 100 - (100 / (1 + rs));
-        results.push(rsi);
-      }
-      return new Array(period).fill(null).concat(results);
-    }
-
-    function updateSignals() {
-      if (candles.length < 60) return;
-      const ema50 = calcEMA(candles, 50);
-      const rsi14 = calcRSI(candles, 14);
-      const signals = [];
-
-      for (let i = 51; i < candles.length; i++) {
-        const prev = candles[i - 1];
-        const curr = candles[i];
-        const cond1 = curr.close > ema50[i];
-        const cond2 = rsi14[i] > 50;
-        const cond3 = prev.close < prev.open && curr.close > curr.open;
-
-        if (cond1 && cond2 && cond3) {
-          signals.push({ index: i, price: curr.close });
-        }
-      }
-
-      drawChart(candles, signals);
-    }
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({
-        ticks_history: "RDBULL",
-        style: "candles",
-        granularity: 86400,
-        count: maxCandles,
-        subscribe: 1
-      }));
+    const log = (msg) => {
+      const el = document.getElementById("log");
+      el.innerText += msg + "\\n";
+      el.scrollTop = el.scrollHeight;
     };
 
-    ws.onmessage = msg => {
+    const app_id = 87893;
+    const ws = new WebSocket("wss://ws.deriv.com/websockets/v3?app_id=" + app_id);
+
+    ws.onopen = () => {
+      log("🟢 Conectado com sucesso! Buscando dados do RDBULL...");
+      ws.send(JSON.stringify({ active_symbols: "brief", product_type: "basic" }));
+    };
+
+    let candles = [];
+    ws.onmessage = function (msg) {
       const data = JSON.parse(msg.data);
-      if (data.candles) {
-        candles.splice(0, candles.length, ...data.candles.map(c => ({
-          open: +c.open,
-          close: +c.close,
-          high: +c.high,
-          low: +c.low,
-          epoch: +c.epoch
-        })));
-        updateSignals();
+
+      if (data.msg_type === "active_symbols") {
+        const rdbull = data.active_symbols.find(s => s.symbol === "RDBULL");
+        if (!rdbull) return log("❌ Símbolo RDBULL não encontrado.");
+        const symbol = rdbull.symbol;
+        ws.send(JSON.stringify({
+          ticks_history: symbol,
+          style: "candles",
+          granularity: 60,
+          count: 100,
+          subscribe: 1
+        }));
+        log("🔄 Aguardando candles...");
       }
+
+      if (data.msg_type === "history") {
+        candles = data.candles;
+        analisarCandle();
+      }
+
+      if (data.msg_type === "candles") {
+        candles.push(data.candles[0]);
+        if (candles.length > 100) candles.shift();
+        analisarCandle();
+      }
+    };
+
+    function calcularEMA(periodo, dados) {
+      const k = 2 / (periodo + 1);
+      let ema = dados[0].close;
+      for (let i = 1; i < dados.length; i++) {
+        ema = dados[i].close * k + ema * (1 - k);
+      }
+      return ema;
+    }
+
+    function calcularRSI(periodo, dados) {
+      let gains = 0, losses = 0;
+      for (let i = dados.length - periodo; i < dados.length - 1; i++) {
+        const dif = dados[i + 1].close - dados[i].close;
+        if (dif > 0) gains += dif;
+        else losses -= dif;
+      }
+      const rs = gains / (losses || 1);
+      return 100 - (100 / (1 + rs));
+    }
+
+    function analisarCandle() {
+      if (candles.length < 52) return;
+      const atual = candles[candles.length - 1];
+      const anterior = candles[candles.length - 2];
+      const ema50 = calcularEMA(50, candles.slice(-52));
+      const rsi14 = calcularRSI(14, candles.slice(-15));
+
+      if (
+        atual.close > ema50 &&
+        rsi14 > 50 &&
+        anterior.close < anterior.open &&
+        atual.close > atual.open
+      ) {
+        log("✅ SINAL DE COMPRA (CALL) - Preço: " + atual.close.toFixed(2));
+      }
+    }
+
+    ws.onerror = function(err) {
+      log("❌ Erro de conexão: " + err.message);
     };
   </script>
 </body>
 </html>
+"""
+
+# Salvar o arquivo
+file_path = Path("/mnt/data/rdbull_indicador_final.html")
+file_path.write_text(html_content, encoding="utf-8")
+file_path.name
